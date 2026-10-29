@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>trackyard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ccircle cx=%228%22 cy=%228%22 r=%226%22 fill=%22%232a78d6%22/%3E%3C/svg%3E">
+<link rel="preload" href="/static/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/IBMPlexSans-SemiBold-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <h1>trackyard</h1>
+    <span id="live" class="pill" role="status"><span class="dot"></span><span class="txt">connecting</span></span>
+    <span id="updated" class="muted small"></span>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="live" aria-selected="true">Live</button>
+    <button class="tab" role="tab" data-tab="analytics" aria-selected="false">Analytics</button>
+  </nav>
+  <div class="top-actions">
+    <button id="pause" class="btn" aria-pressed="false" title="Freeze the display (data keeps arriving)">Pause</button>
+    <button id="theme" class="btn icon" title="Theme: auto">◐</button>
+  </div>
+</header>
+
+<main>
+  <section class="tiles" id="tiles" aria-label="Summary"></section>
+
+  <section id="view-live" class="view">
+    <div class="filters" aria-label="Filters">
+      <div class="seg" id="status-filter" role="group" aria-label="Status">
+        <button data-v="all" aria-pressed="true">All</button>
+        <button data-v="active" aria-pressed="false">Active</button>
+        <button data-v="stale" aria-pressed="false">Stale</button>
+        <button data-v="watched" aria-pressed="false">★ Watched</button>
+      </div>
+      <select id="zone-filter" aria-label="Zone"><option value="">All zones</option></select>
+      <select id="min-sightings" aria-label="Minimum sightings">
+        <option value="0">Any sightings</option><option value="10">10+ sightings</option>
+        <option value="100">100+ sightings</option><option value="1000">1000+ sightings</option>
+      </select>
+      <button id="clear-filters" class="btn ghost" hidden>Clear filters</button>
+      <span class="spacer"></span>
+      <span id="count" class="muted small"></span>
+      <button id="export" class="btn primary">Export CSV</button>
+    </div>
+
+    <div class="scrub" role="group" aria-label="Time scrubber">
+      <button id="scrub-play" class="btn small" aria-pressed="false" title="Play forward, one minute per step">▶ Play</button>
+      <button id="scrub-back" class="btn small ghost" title="5 minutes earlier">−5 min</button>
+      <label class="scrub-range"><span class="sr-only">Show the floor as it was at</span><input id="scrub" type="range"></label>
+      <button id="scrub-fwd" class="btn small ghost" title="5 minutes later">+5 min</button>
+      <span id="scrub-time" class="scrub-time" aria-live="polite">Live</span>
+      <button id="scrub-live" class="btn small primary" hidden>Back to live</button>
+    </div>
+
+    <div class="live-grid">
+      <div class="card map-card">
+        <div class="card-hdr"><h2>Floor map</h2><span class="muted small" id="map-note"></span></div>
+        <div id="map" class="map"></div>
+        <div class="legend small muted">
+          <span><i class="sw rx"></i>receiver (click to filter)</span>
+          <span><i class="sw bubble"></i>circle size = active badges</span>
+          <span><i class="sw sel"></i>selected / watched badge</span>
+          <span>dot direction around a receiver is arbitrary; its distance is a rough RSSI estimate</span>
+        </div>
+      </div>
+      <div class="card zones-card">
+        <div class="card-hdr"><h2>Zone occupancy</h2><span class="muted small">active now</span></div>
+        <div id="zones" class="zones"></div>
+        <div class="card-hdr sub-hdr"><h2>Receiver health</h2><span class="muted small">last packet · rate, 5 min</span></div>
+        <div id="rx-health" class="rx-health"></div>
+      </div>
+    </div>
+
+    <div class="card table-card">
+      <div class="vtable" id="table" role="table" aria-label="Badges">
+        <div class="vrow vhead" role="row" id="thead"></div>
+        <div class="vbody" id="tbody" tabindex="0">
+          <div class="vspacer" id="tspacer"></div>
+        </div>
+      </div>
+      <div id="empty" class="empty" hidden>No badges match these filters.</div>
+    </div>
+  </section>
+
+  <section id="view-analytics" class="view" hidden>
+    <div class="filters">
+      <span class="muted small">Range for activity and heatmap</span>
+      <div class="seg" id="range" role="group" aria-label="Time range for activity and heatmap">
+        <button data-v="1" aria-pressed="false">1 h</button>
+        <button data-v="6" aria-pressed="false">6 h</button>
+        <button data-v="24" aria-pressed="true">24 h</button>
+        <button data-v="168" aria-pressed="false">7 d</button>
+      </div>
+      <span class="spacer"></span>
+      <span id="analytics-note" class="muted small"></span>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><h2 id="activity-title">Unique badges per minute</h2>
+        <div class="seg small" id="activity-mode" role="group" aria-label="Measure">
+          <button data-v="tags" aria-pressed="true">Unique badges</button>
+          <button data-v="count" aria-pressed="false">Sightings</button>
+        </div>
+      </div>
+      <div id="c-activity" class="chart"></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><div class="card-hdr"><h2>Signal strength</h2><span class="muted small">sightings per 5 dBm · all time</span></div><div id="c-rssi" class="chart"></div></div>
+      <div class="card"><div class="card-hdr"><h2>Activity by hour of day</h2><span class="muted small" id="hourly-note">unique badges · all time</span></div><div id="c-hourly" class="chart"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><h2>Route heatmap</h2><span class="muted small" id="heat-note">unique badges per receiver</span></div>
+      <div id="c-heat" class="chart heat"><canvas></canvas></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><div class="card-hdr"><h2>Zone transitions</h2><span class="muted small">last 4 h</span></div><div id="c-flow" class="chart"></div></div>
+      <div class="card"><div class="card-hdr"><h2>Top badges</h2><span class="muted small">by sightings · all time</span></div><div id="c-top" class="chart"></div></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><div class="card-hdr"><h2>Presence timeline</h2><span class="muted small">top 15 badges · visits, all time</span></div><div id="c-gantt" class="chart"></div></div>
+      <div class="card"><div class="card-hdr"><h2>Often together</h2><span class="muted small">same receiver, same 5 min, last 2 h</span></div><div id="c-pairs" class="pairs"></div></div>
+    </div>
+  </section>
+</main>
+
+<aside id="drawer" class="drawer" hidden aria-labelledby="d-title">
+  <div class="drawer-hdr">
+    <div>
+      <h2 id="d-title" class="d-title" tabindex="-1"></h2>
+      <div id="d-id" class="mono muted small"></div>
+    </div>
+    <div class="drawer-actions">
+      <button id="d-watch" class="btn" aria-pressed="false">☆ Watch</button>
+      <button id="d-close" class="btn icon" title="Close (Esc)">✕</button>
+    </div>
+  </div>
+  <div class="drawer-body">
+    <div id="d-facts" class="facts"></div>
+    <div class="filters">
+      <div class="seg small" id="d-range" role="group" aria-label="History range">
+        <button data-v="1" aria-pressed="false">1 h</button>
+        <button data-v="6" aria-pressed="true">6 h</button>
+        <button data-v="24" aria-pressed="false">24 h</button>
+        <button data-v="168" aria-pressed="false">7 d</button>
+      </div>
+      <span class="spacer"></span>
+      <button id="d-csv" class="btn small">Timeline CSV</button>
+    </div>
+    <h3>Where it was</h3>
+    <div id="d-strip" class="chart strip"></div>
+    <h3>Signal by receiver</h3>
+    <div id="d-rssi" class="chart"></div>
+    <h3>Visits</h3>
+    <div id="d-segments" class="mini-table"></div>
+    <h3>Receivers</h3>
+    <div id="d-receivers" class="mini-table"></div>
+    <h3>Often near</h3>
+    <div id="d-peers" class="pairs"></div>
+    <h3>Ground truth</h3>
+    <div class="filters">
+      <select id="d-truth-zone" aria-label="Zone the badge is really in"></select>
+      <button id="d-truth-mark" class="btn small" title="Record that this badge is in the chosen zone right now">Badge is here now</button>
+    </div>
+    <div id="d-truth"></div>
+  </div>
+</aside>
+<div id="scrim" class="scrim" hidden></div>
+<div id="tip" class="tip" role="tooltip" hidden></div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<script src="/static/app.js" defer></script>
+</body>
+</html>

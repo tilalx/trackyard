@@ -1,0 +1,27 @@
+# Copy to config.yaml and adjust. config.yaml is git-ignored.
+
+# iBeacon proximity UUID shared by the badges you want to observe.
+# Leave empty to accept every iBeacon in range (not recommended: that also
+# records unrelated devices). Find your own badge's UUID with `python discover.py`.
+badge_ibeacon_uuid: "00000000-0000-0000-0000-000000000000"
+
+localizer:
+  window_seconds: 10       # RSSI aggregation window
+  hysteresis_windows: 2    # windows a new zone must win before a badge "moves"
+  gap_seconds: 60          # silence after which a badge counts as gone
+  distance:
+    enabled: true
+    tx_power_at_1m: -59    # expected RSSI at 1 m
+    path_loss_n: 2.5       # path-loss exponent (2 = free space, 3-4 = indoors)
+
+# Sightings older than this are deleted (at startup, hourly, or via `trackyard purge`).
+# Keep it as short as your purpose allows.
+retention_days: 7
+
+storage:
+  db_path: "trackyard.sqlite"
+
+web:
+  host: "127.0.0.1"        # keep on localhost unless you add authentication in front
+  port: 8000
+  # map_image: "https://example.org/floorplan.png"

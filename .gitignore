@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local configuration (may contain names, badge ids, site layout).
+# Copy the *.example.yaml files instead.
+config.yaml
+targets.yaml
+receivers.yaml
+
+# Captured data and generated output (personal data, never commit)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.db
+report.md
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+.env
+.env.*

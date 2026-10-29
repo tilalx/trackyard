@@ -1,0 +1,4 @@
+# Copy to targets.yaml. Maps badge ids to display labels; targets.yaml is git-ignored.
+# Only label badges whose holders have agreed to be tracked.
+targets:
+  TN_00412345: "My badge"

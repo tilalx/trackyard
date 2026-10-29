@@ -1,0 +1,14 @@
+# Copy to receivers.yaml. One entry per scan node; receivers.yaml is git-ignored.
+# `x`/`y` are optional floor-plan positions in percent of the map width/height;
+# receivers without them are auto-placed on the map.
+receivers:
+  - name: mac
+    location: "Laptop"
+    adapter: ""            # empty = default adapter (macOS); e.g. hci0 on Linux
+    x: 50
+    y: 50
+  # - name: pi-a
+  #   location: "Hall A"
+  #   adapter: hci0
+  #   x: 20
+  #   y: 35
