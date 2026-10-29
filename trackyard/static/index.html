@@ -39,8 +39,10 @@
       </div>
       <select id="zone-filter" aria-label="Zone"><option value="">All zones</option></select>
       <select id="min-sightings" aria-label="Minimum sightings">
-        <option value="0">Any sightings</option><option value="10">10+ sightings</option>
-        <option value="100">100+ sightings</option><option value="1000">1000+ sightings</option>
+        <option value="0">Any sightings</option>
+        <option value="10">10+ sightings</option>
+        <option value="100">100+ sightings</option>
+        <option value="1000">1000+ sightings</option>
       </select>
       <button id="clear-filters" class="btn ghost" hidden>Clear filters</button>
       <span class="spacer"></span>
@@ -90,12 +92,7 @@
   <section id="view-analytics" class="view" hidden>
     <div class="filters">
       <span class="muted small">Range for activity and heatmap</span>
-      <div class="seg" id="range" role="group" aria-label="Time range for activity and heatmap">
-        <button data-v="1" aria-pressed="false">1 h</button>
-        <button data-v="6" aria-pressed="false">6 h</button>
-        <button data-v="24" aria-pressed="true">24 h</button>
-        <button data-v="168" aria-pressed="false">7 d</button>
-      </div>
+      <div class="seg" id="range" role="group" aria-label="Time range for activity and heatmap"></div>
       <span class="spacer"></span>
       <span id="analytics-note" class="muted small"></span>
     </div>
@@ -141,12 +138,7 @@
   <div class="drawer-body">
     <div id="d-facts" class="facts"></div>
     <div class="filters">
-      <div class="seg small" id="d-range" role="group" aria-label="History range">
-        <button data-v="1" aria-pressed="false">1 h</button>
-        <button data-v="6" aria-pressed="true">6 h</button>
-        <button data-v="24" aria-pressed="false">24 h</button>
-        <button data-v="168" aria-pressed="false">7 d</button>
-      </div>
+      <div class="seg small" id="d-range" role="group" aria-label="History range"></div>
       <span class="spacer"></span>
       <button id="d-csv" class="btn small">Timeline CSV</button>
     </div>

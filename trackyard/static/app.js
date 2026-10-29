@@ -12,8 +12,8 @@ const fmtInt = n => n == null ? '—' : Math.round(n).toLocaleString();
 const compact = n => Math.abs(n) >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : Math.abs(n) >= 1e4 ? Math.round(n / 1e3) + 'k' : Math.abs(n) >= 1e3 ? (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'k' : String(Math.round(n * 10) / 10);
 const fmtTime = ts => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const fmtDay = ts => new Date(ts * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' });
-const fmtDT = ts => ts ? new Date(ts * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
-const fmtDTm = ts => ts ? new Date(ts * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+const fmtDT = (ts, sec = true) => ts ? new Date(ts * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', ...sec && { second: '2-digit' } }) : '—';
+const hh = h => String(h).padStart(2, '0');
 // Local wall-clock time with its UTC offset, e.g. 2026-10-29T07:21:03+01:00 (exports stay unambiguous).
 function isoLocal(ts) {
   const d = new Date(ts * 1000), p = n => String(n).padStart(2, '0'), off = -d.getTimezoneOffset();
@@ -21,6 +21,7 @@ function isoLocal(ts) {
     + `${off < 0 ? '-' : '+'}${p(Math.floor(Math.abs(off) / 60))}:${p(Math.abs(off) % 60)}`;
 }
 const RANGE_NAMES = { 1: '1 h', 6: '6 h', 24: '24 h', 168: '7 d' };
+const rangeName = h => RANGE_NAMES[h] || h + ' h';
 function fmtDur(s) {
   s = Math.max(0, Math.round(s));
   if (s < 60) return s + 's';
@@ -28,7 +29,8 @@ function fmtDur(s) {
   if (s < 86400) return Math.floor(s / 3600) + 'h ' + Math.floor(s % 3600 / 60) + 'm';
   return Math.floor(s / 86400) + 'd ' + Math.floor(s % 86400 / 3600) + 'h';
 }
-function ago(ts) { return ts ? fmtDur(now() - ts).split(' ')[0] + ' ago' : 'never'; }
+const agoSecs = s => fmtDur(s).split(' ')[0] + ' ago';
+const ago = ts => ts ? agoSecs(now() - ts) : 'never';
 function hash32(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
 function niceTicks(max, n = 4) {
   if (!(max > 0)) return [0, 1];
@@ -38,11 +40,18 @@ function niceTicks(max, n = 4) {
   for (let v = 0; v <= Math.ceil(max / step) * step + 1e-9; v += step) out.push(+v.toFixed(6));
   return out;
 }
-function barPath(x, y, w, h, horizontal) {
-  const r = 0; // square data-ends, as in Carbon charts
-  if (horizontal) return `M${x},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h - r}Q${x + w},${y + h} ${x + w - r},${y + h}H${x}Z`;
-  return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+// Square data-ends, as in Carbon charts; a path (not <rect>) so several bars can share one element.
+const barPath = (x, y, w, h) => `M${x},${y}h${w}v${h}h${-w}Z`;
+// Evenly spaced time labels along an x axis (first left-aligned, last right-aligned).
+function timeTicks(t0, span, xOf, y, withDay, n = 4) {
+  let s = '';
+  for (let i = 0; i <= n; i++) {
+    const ts = t0 + span * i / n;
+    s += `<text x="${xOf(ts)}" y="${y}" text-anchor="${i === 0 ? 'start' : i === n ? 'end' : 'middle'}">${esc((withDay ? fmtDay(ts) + ' ' : '') + fmtTime(ts))}</text>`;
+  }
+  return s;
 }
+const rxLabel = r => r.location ? `${r.name} — ${r.location}` : r.name;
 function csvCell(v) {
   let s = String(v ?? '');
   if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = "'" + s; // spreadsheet formula injection; numbers pass through
@@ -88,7 +97,7 @@ let zoneIdx = new Map();
 function rebuildZones() {
   zoneIdx = new Map(S.receivers.map((r, i) => [r.name, i]));
   const sel = $('#zone-filter'), cur = S.f.zone;
-  sel.replaceChildren(new Option('All zones', ''), ...S.receivers.map(r => new Option(r.location ? `${r.name} — ${r.location}` : r.name, r.name)), new Option('Not located', '__none'));
+  sel.replaceChildren(new Option('All zones', ''), ...S.receivers.map(r => new Option(rxLabel(r), r.name)), new Option('Not located', '__none'));
   sel.value = cur;
 }
 const zoneVar = z => { const i = zoneIdx.get(z); return i == null || i > 7 ? 'var(--c-other)' : `var(--c${i + 1})`; };
@@ -128,12 +137,15 @@ function flush() {
 // ---------------------------------------------------------------- live data
 // Rows arrive as arrays in LIVE_COLS order: target_id, label (null = same as id), zone, rssi, distance_m, last_seen, stale.
 const unpack = a => Array.isArray(a) ? { target_id: a[0], label: a[1] ?? a[0], zone: a[2], rssi: a[3], distance_m: a[4], last_seen: a[5], stale: a[6] } : a;
-function applyFull(d) {
+function applyHeader(d) {
   S.seq = d.seq;
   S.clockOffset = d.server_time - Date.now() / 1000;
+  S.totalSightings = d.total_sightings;
+}
+function applyFull(d) {
+  applyHeader(d);
   S.gap = d.gap_seconds ?? S.gap;
   S.mapImage = d.map_image || '';
-  S.totalSightings = d.total_sightings;
   const prev = S.targets;
   S.targets = new Map(d.targets.map(unpack).map(t => [t.target_id, t]));
   watchCheck(prev);
@@ -143,13 +155,11 @@ function applyFull(d) {
 }
 function applyDelta(d) {
   if (d.base !== S.seq) return reconnect(); // the server sends a fresh full state to every new subscriber
-  S.seq = d.seq;
-  S.clockOffset = d.server_time - Date.now() / 1000;
-  S.totalSightings = d.total_sightings;
+  applyHeader(d);
   const prev = new Map();
   for (const raw of d.upsert) { const t = unpack(raw); prev.set(t.target_id, S.targets.get(t.target_id)); S.targets.set(t.target_id, t); }
   for (const id of d.remove) S.targets.delete(id);
-  watchCheck(prev, true);
+  watchCheck(prev);
   if (d.receivers) { S.receivers = d.receivers; rebuildZones(); }
   liveChanged();
 }
@@ -209,8 +219,7 @@ function renderLivePill() {
   el.className = 'pill ' + state;
   $('.txt', el).textContent = label;
   el.title = state === 'quiet' ? 'Connected to the dashboard, but no receiver has reported a badge for ' + fmtDur(silent) : '';
-  $('#updated').textContent = S.replay ? 'showing ' + fmtDT(S.replay.at)
-    : last ? 'last sighting ' + fmtDur(silent).split(' ')[0] + ' ago' : '';
+  $('#updated').textContent = S.replay ? 'showing ' + fmtDT(S.replay.at) : last ? 'last sighting ' + agoSecs(silent) : '';
 }
 let es = null;
 function reconnect() {
@@ -233,19 +242,17 @@ function connect() {
 }
 
 // ---------------------------------------------------------------- watchlist
-function saveWatch() { store.set('watch', [...S.watch]); }
 function toggleWatch(id) {
-  if (S.watch.has(id)) S.watch.delete(id); else S.watch.add(id);
-  saveWatch();
+  if (!S.watch.delete(id)) S.watch.add(id);
+  store.set('watch', [...S.watch]);
   invalidate('rows', 'tiles', 'map');
   if (S.selected === id) renderWatchBtn();
 }
-function watchCheck(prev, partial) {
+// prev holds the previous state of (at least) every badge that changed.
+function watchCheck(prev) {
   for (const id of S.watch) {
-    if (partial && !prev.has(id)) continue;
     const before = prev.get(id), after = S.targets.get(id);
-    if (!after || !before) continue;
-    if (before.zone !== after.zone && after.zone) toast(id, `moved ${before.zone || 'unlocated'} → ${after.zone}`);
+    if (before && after?.zone && before.zone !== after.zone) toast(id, `moved ${before.zone || 'unlocated'} → ${after.zone}`);
   }
 }
 function watchStaleCheck() {
@@ -342,16 +349,8 @@ function renderTiles() {
   ];
   setHtml($('#tiles'), tiles.map((t, i) => {
     const body = `<div class="lbl">${esc(t.l)}</div><div class="val">${esc(t.v)}</div><div class="sub">${esc(t.s)}</div>`;
-    return t.f || t.z ? `<button class="tile clickable" data-i="${i}" title="Filter the badge list">${body}</button>` : `<div class="tile">${body}</div>`;
+    return t.f || t.z ? `<button class="tile clickable" data-i="${i}" data-f="${t.f || ''}" data-z="${esc(t.z || '')}" title="Filter the badge list">${body}</button>` : `<div class="tile">${body}</div>`;
   }).join(''), 'data-i');
-  $('#tiles').onclick = e => {
-    const b = e.target.closest('button[data-i]');
-    if (!b) return;
-    const t = tiles[+b.dataset.i];
-    if (t.f) setFilter({ status: S.f.status === t.f ? 'all' : t.f });
-    if (t.z) setFilter({ zone: t.z });
-    setTab('live');
-  };
 }
 
 // ---------------------------------------------------------------- virtual table
@@ -411,7 +410,7 @@ function fillRow(row, r, i) {
   row.c[7].textContent = fmtInt(r.sightings);
   row.c[8].textContent = fmtInt(r.encounters);
   row.c[9].textContent = fmtInt(r.nearby);
-  row.c[10].textContent = fmtDTm(r.first_seen);
+  row.c[10].textContent = fmtDT(r.first_seen, false);
   row.c[10].title = fmtDT(r.first_seen);
 }
 function renderTable(mode) {
@@ -569,7 +568,7 @@ function renderHealth() {
   const word = { ok: 'Online', quiet: 'Quiet', down: 'Offline' };
   setHtml(host, S.health.map(h => `<div class="rx-row ${h.state}" title="${esc(h.last_ts ? 'last packet ' + fmtDT(h.last_ts) : 'never heard')}">
     <span class="st ${h.state}">${word[h.state]}</span><span class="name">${esc(h.receiver)}</span>
-    <span class="muted small num">${h.silent == null ? 'never' : fmtDur(h.silent).split(' ')[0] + ' ago'} · ${fmtInt(h.perMin)}/min</span></div>`).join(''));
+    <span class="muted small num">${h.silent == null ? 'never' : agoSecs(h.silent)} · ${fmtInt(h.perMin)}/min</span></div>`).join(''));
 }
 
 // ---------------------------------------------------------------- tooltip layer
@@ -656,7 +655,7 @@ function hbars(host, items, o) {
   items.forEach((d, i) => {
     const y = pad.t + i * rowH, w = Math.max(2, d.value / max * cw);
     s += `<text class="lbl" x="${lw - 8}" y="${y + rowH / 2 + 4}" text-anchor="end">${esc(trunc(d.label, lw / 6.5))}</text>`;
-    s += `<path class="m" data-mi="${i}" d="${barPath(lw, y + 5, w, rowH - 10, true)}"${d.color ? ` style="fill:${d.color}"` : ''}/>`;
+    s += `<path class="m" data-mi="${i}" d="${barPath(lw, y + 5, w, rowH - 10)}"${d.color ? ` style="fill:${d.color}"` : ''}/>`;
     s += `<text class="val" x="${lw + w + 6}" y="${y + rowH / 2 + 4}">${esc(o.fmt ? o.fmt(d.value) : fmtInt(d.value))}</text>`;
     s += `<rect class="hit" data-ti="${i}" x="0" y="${y}" width="${W}" height="${rowH}"/>`;
   });
@@ -676,12 +675,12 @@ function renderAnalytics() {
   });
   // Hours are bucketed in the server's local time; say so only when this browser's zone differs.
   const off = a.utc_offset_minutes ?? 0, tz = off === -new Date().getTimezoneOffset() ? ''
-    : ` (server time, UTC${off < 0 ? '−' : '+'}${Math.floor(Math.abs(off) / 60)}${Math.abs(off) % 60 ? ':' + String(Math.abs(off) % 60).padStart(2, '0') : ''})`;
+    : ` (server time, UTC${off < 0 ? '−' : '+'}${Math.floor(Math.abs(off) / 60)}${Math.abs(off) % 60 ? ':' + hh(Math.abs(off) % 60) : ''})`;
   $('#hourly-note').textContent = 'unique badges · all time' + tz;
   const hours = Array.from({ length: 24 }, (_, h) => a.hourly_activity.find(d => d.hour === h) || { hour: h, count: 0, tags: 0 });
   vbars($('#c-hourly'), a.hourly_activity.length ? hours : [], {
-    value: d => d.tags, xLabel: d => String(d.hour).padStart(2, '0') + ':00', empty: 'No sightings yet.',
-    tip: d => ({ h: `${String(d.hour).padStart(2, '0')}:00–${String(d.hour).padStart(2, '0')}:59${tz}`, rows: [{ v: fmtInt(d.tags), l: 'unique badges' }, { v: fmtInt(d.count), l: 'sightings' }] }),
+    value: d => d.tags, xLabel: d => hh(d.hour) + ':00', empty: 'No sightings yet.',
+    tip: d => ({ h: `${hh(d.hour)}:00–${hh(d.hour)}:59${tz}`, rows: [{ v: fmtInt(d.tags), l: 'unique badges' }, { v: fmtInt(d.count), l: 'sightings' }] }),
   });
   hbars($('#c-flow'), a.zone_flow.slice(0, 12).map(f => ({ label: `${f.from} → ${f.to}`, value: f.count, f })), {
     empty: 'No zone transitions in the last 4 h.',
@@ -712,7 +711,7 @@ function renderActivity(a) {
   const data = [...merged.values()].sort((x, y) => x.ts - y.ts);
   const per = { 60: 'minute', 300: '5 min', 900: '15 min', 3600: 'hour' }[bucket];
   const tags = S.activityMode === 'tags';
-  $('#activity-title').textContent = (tags ? (bucket === 60 ? 'Unique badges per minute' : `Peak unique badges per minute (per ${per})`) : `Sightings per ${per}`) + ` · last ${RANGE_NAMES[hours] || hours + ' h'}`;
+  $('#activity-title').textContent = (tags ? (bucket === 60 ? 'Unique badges per minute' : `Peak unique badges per minute (per ${per})`) : `Sightings per ${per}`) + ` · last ${rangeName(hours)}`;
   vbars($('#c-activity'), data, {
     height: 220, value: d => tags ? d.tags : d.count, xLabel: d => fmtTime(d.ts), xLabel2: d => fmtDay(d.ts), empty: 'No sightings in this range.',
     tip: d => ({ h: `${fmtDay(d.ts)} ${fmtTime(d.ts)}–${fmtTime(d.ts + bucket)}`, rows: [{ v: fmtInt(d.tags), l: bucket === 60 ? 'unique badges' : 'peak unique badges / min' }, { v: fmtInt(d.count), l: 'sightings' }] }),
@@ -726,17 +725,14 @@ function renderGantt(stats) {
   const t0 = Math.min(...stats.map(s => s.first_seen)), t1 = Math.max(...stats.map(s => s.last_seen)), span = t1 - t0 || 1;
   const x = ts => lw + (ts - t0) / span * cw;
   let s = `<svg viewBox="0 0 ${W} ${H}" height="${H}"><g class="grid">`;
-  for (let i = 0; i <= 4; i++) {
-    const ts = t0 + span * i / 4;
-    s += `<line x1="${x(ts)}" x2="${x(ts)}" y1="${pad.t}" y2="${H - pad.b}"/><text x="${x(ts)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === 4 ? 'end' : 'middle'}">${esc(fmtTime(ts))}</text>`;
-  }
-  s += '</g>';
+  for (let i = 0; i <= 4; i++) s += `<line x1="${x(t0 + span * i / 4)}" x2="${x(t0 + span * i / 4)}" y1="${pad.t}" y2="${H - pad.b}"/>`;
+  s += timeTicks(t0, span, x, H - 6, false) + '</g>';
   // One bar per continuous visit; a gap means the badge went unheard for longer than the stale gap.
   const spansOf = st => S.analytics.presence?.[st.target_id] || [[st.first_seen, st.last_seen]];
   stats.forEach((st, i) => {
     const y = pad.t + i * rowH;
     s += `<text class="lbl" x="${lw - 8}" y="${y + rowH / 2 + 4}" text-anchor="end">${esc(trunc(st.label, lw / 6.5))}</text>`;
-    s += `<path class="m" data-mi="${i}" d="${spansOf(st).map(([a, b]) => barPath(x(a), y + 5, Math.max(2, x(b) - x(a)), rowH - 10, true)).join('')}"/>`;
+    s += `<path class="m" data-mi="${i}" d="${spansOf(st).map(([a, b]) => barPath(x(a), y + 5, Math.max(2, x(b) - x(a)), rowH - 10)).join('')}"/>`;
     s += `<rect class="hit" data-ti="${i}" x="0" y="${y}" width="${W}" height="${rowH}"/>`;
   });
   host.innerHTML = s + '</svg>';
@@ -754,7 +750,10 @@ function renderPairs(host, pairs, empty) {
     const ids = [p.a, p.b].filter(Boolean), sub = ids.some(named) ? `<div class="mono muted small">${ids.map(esc).join(' · ')}</div>` : '';
     return `<button class="pair" data-i="${i}"><span class="who"><div>${ids.map(id => esc(labelOf(id))).join(' &amp; ')}</div>${sub}</span><span class="cnt">${fmtInt(p.n)}×</span></button>`;
   }).join('');
-  host.onclick = e => { const b = e.target.closest('[data-i]'); if (b) openDetail(pairs[+b.dataset.i].a === S.selected && pairs[+b.dataset.i].b ? pairs[+b.dataset.i].b : pairs[+b.dataset.i].a); };
+  host.onclick = e => {
+    const p = pairs[e.target.closest('[data-i]')?.dataset.i];
+    if (p) openDetail(p.a === S.selected && p.b ? p.b : p.a);
+  };
 }
 
 // ---------------------------------------------------------------- heatmap (canvas: one draw call path, no DOM per cell)
@@ -765,7 +764,7 @@ function seqColor(t) {
 }
 function renderHeat() {
   const host = $('#c-heat'), cv = $('canvas', host), R = S.route;
-  $('#heat-note').textContent = `unique badges per receiver · last ${RANGE_NAMES[S.routeHours] || S.routeHours + ' h'}`;
+  $('#heat-note').textContent = `unique badges per receiver · last ${rangeName(S.routeHours)}`;
   if (!R || !R.rows.length) { cv.hidden = true; if (!$('.nodata', host)) host.insertAdjacentHTML('beforeend', '<div class="nodata">No route data in this range.</div>'); return; }
   cv.hidden = false;
   $('.nodata', host)?.remove();
@@ -817,6 +816,8 @@ function renderHeat() {
 // ---------------------------------------------------------------- detail drawer
 let detailTimer = 0, detailReq = 0;
 let returnFocus = null;
+const DETAIL_PANES = ['#d-strip', '#d-rssi', '#d-segments', '#d-receivers', '#d-peers'];
+const detailLoading = on => DETAIL_PANES.forEach(s => $(s).classList.toggle('loading', on));
 function openDetail(id) {
   if (!id) return;
   const wasOpen = !!S.selected;
@@ -832,7 +833,7 @@ function openDetail(id) {
   renderWatchBtn();
   renderFacts();
   S.detail = null;
-  ['#d-strip', '#d-rssi', '#d-segments', '#d-receivers', '#d-peers'].forEach(s => $(s).classList.add('loading'));
+  detailLoading(true);
   loadDetail();
   clearInterval(detailTimer);
   detailTimer = setInterval(loadDetail, 10000);
@@ -874,7 +875,7 @@ async function markTruth() {
 }
 function renderTruth() {
   const sel = $('#d-truth-zone'), cur = sel.value;
-  sel.replaceChildren(...S.receivers.map(r => new Option(r.location ? `${r.name} — ${r.location}` : r.name, r.name)));
+  sel.replaceChildren(...S.receivers.map(r => new Option(rxLabel(r), r.name)));
   sel.value = cur || T().get(S.selected)?.zone || S.receivers[0]?.name || '';
   $('#d-truth-mark').disabled = S.replay != null || !S.receivers.length;
   const t = S.truth, host = $('#d-truth');
@@ -890,9 +891,9 @@ async function loadDetail() {
   try {
     const r = await fetch(`/api/tag/${encodeURIComponent(id)}?hours=${S.detailHours}`);
     if (req !== detailReq) return;
-    if (!r.ok) { S.detail = { missing: true }; } else S.detail = await r.json();
+    S.detail = r.ok ? await r.json() : { missing: true };
   } catch { return; }
-  ['#d-strip', '#d-rssi', '#d-segments', '#d-receivers', '#d-peers'].forEach(s => $(s).classList.remove('loading'));
+  detailLoading(false);
   invalidate('detail');
 }
 function renderWatchBtn() {
@@ -916,7 +917,7 @@ function renderFacts() {
 }
 function renderDetailCharts() {
   const d = S.detail;
-  if (d.missing) { ['#d-strip', '#d-rssi', '#d-segments', '#d-receivers', '#d-peers'].forEach(s => noData($(s), 'No history for this badge.')); return; }
+  if (d.missing) return DETAIL_PANES.forEach(s => noData($(s), 'No history for this badge.'));
   renderStrip(d);
   renderRssiLines(d);
   const segs = d.segments.filter(s => s.kind === 'zone').reverse();
@@ -937,11 +938,7 @@ function renderStrip(d) {
     const x1 = x(g.enter_ts), w = Math.max(2, x(g.leave_ts) - x1);
     s += `<rect class="m" data-mi="${i}" data-ti="${i}" x="${x1}" y="2" width="${w}" height="24" style="fill:${zoneVar(g.zone)}"/>`;
   });
-  for (let i = 0; i <= 4; i++) {
-    const ts = t0 + span * i / 4;
-    s += `<text x="${x(ts)}" y="${H - 4}" text-anchor="${i === 0 ? 'start' : i === 4 ? 'end' : 'middle'}">${esc((d.hours > 24 ? fmtDay(ts) + ' ' : '') + fmtTime(ts))}</text>`;
-  }
-  host.innerHTML = s + '</svg>';
+  host.innerHTML = s + timeTicks(t0, span, x, H - 4, d.hours > 24) + '</svg>';
   setTips(host, i => { const g = segs[+i]; return { h: g.zone, rows: [{ v: fmtDur(g.dwell_seconds), l: 'dwell' }, { v: `${fmtTime(g.enter_ts)}–${fmtTime(g.leave_ts)}`, l: '' }] }; });
 }
 function renderRssiLines(d) {
@@ -963,19 +960,20 @@ function renderRssiLines(d) {
     for (const b of keys) { path += (prev != null && b - prev <= B * 2 ? 'L' : 'M') + x(b).toFixed(1) + ',' + y(m.get(b)).toFixed(1); prev = b; }
     s += `<path d="${path}" fill="none" stroke="${zoneVar(rx)}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
   }
-  for (let i = 0; i <= 4; i++) {
-    const ts = t0 + span * i / 4;
-    s += `<text x="${pad.l + (ts - t0) / span * cw}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === 4 ? 'end' : 'middle'}">${esc((d.hours > 24 ? fmtDay(ts) + ' ' : '') + fmtTime(ts))}</text>`;
-  }
+  s += timeTicks(t0, span, ts => pad.l + (ts - t0) / span * cw, H - 6, d.hours > 24);
   s += `<line class="xhair" x1="0" x2="0" y1="${pad.t}" y2="${pad.t + ch}" visibility="hidden"/><rect class="hit" data-ti="x" x="${pad.l}" y="${pad.t}" width="${cw}" height="${ch}"/></svg>`;
-  const legend = series.length > 1 ? `<div class="legend small muted">${series.map(rx => `<span><i class="sw" style="border-radius:1px;height:2px;width:14px;background:${zoneVar(rx)}"></i>${esc(rx)}</span>`).join('')}</div>` : `<div class="legend small muted"><span>${esc(series[0])} · dBm (higher = closer)</span></div>`;
-  host.innerHTML = s + legend;
+  const legend = series.length > 1
+    ? series.map(rx => `<span><i class="sw" style="border-radius:1px;height:2px;width:14px;background:${zoneVar(rx)}"></i>${esc(rx)}</span>`).join('')
+    : `<span>${esc(series[0])} · dBm (higher = closer)</span>`;
+  host.innerHTML = s + `<div class="legend small muted">${legend}</div>`;
   host.dataset.xhair = '';
   const xh = $('.xhair', host), svg = $('svg', host);
   setTips(host, (_, e) => {
     const bb = svg.getBoundingClientRect(), px = (e.clientX - bb.left) / bb.width * W;
     const b = Math.round(((px - pad.l) / cw * span + t0 - B / 2) / B) * B;
-    xh.setAttribute('x1', x(b)); xh.setAttribute('x2', x(b)); xh.setAttribute('visibility', 'visible');
+    xh.setAttribute('x1', x(b));
+    xh.setAttribute('x2', x(b));
+    xh.setAttribute('visibility', 'visible');
     const rows = series.filter(rx => byRx.get(rx).has(b)).map(rx => ({ v: byRx.get(rx).get(b) + ' dBm', l: rx, c: zoneVar(rx) }));
     return { h: `${fmtTime(b)}–${fmtTime(b + B)}`, rows: rows.length ? rows : [{ v: '—', l: 'not heard' }] };
   });
@@ -1106,10 +1104,11 @@ function segmented(sel, fn) {
 const THEMES = ['auto', 'light', 'dark'];
 function applyTheme(t) {
   if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
-  const name = { auto: 'follow system', light: 'White', dark: 'Gray 100' }[t];
-  $('#theme').title = 'Theme: ' + name;
-  $('#theme').setAttribute('aria-label', 'Theme: ' + name);
-  $('#theme').textContent = t === 'auto' ? '◐' : t === 'light' ? '○' : '●';
+  const [name, icon] = { auto: ['follow system', '◐'], light: ['White', '○'], dark: ['Gray 100', '●'] }[t];
+  const b = $('#theme');
+  b.title = 'Theme: ' + name;
+  b.setAttribute('aria-label', b.title);
+  b.textContent = icon;
   cssCache = {};
   invalidate('all');
 }
@@ -1118,7 +1117,18 @@ function applyTheme(t) {
 function init() {
   buildHead();
   applyTheme(store.get('theme', 'auto'));
+  for (const [sel, cur] of [['#range', S.routeHours], ['#d-range', S.detailHours]]) {
+    $(sel).innerHTML = Object.entries(RANGE_NAMES).map(([v, t]) => `<button data-v="${v}" aria-pressed="${+v === cur}">${t}</button>`).join('');
+  }
   $$('.tab').forEach(b => b.onclick = () => setTab(b.dataset.tab));
+  $('#tiles').onclick = e => {
+    const b = e.target.closest('button[data-i]');
+    if (!b) return;
+    const { f, z } = b.dataset;
+    if (f) setFilter({ status: S.f.status === f ? 'all' : f });
+    if (z) setFilter({ zone: z });
+    setTab('live');
+  };
   segmented('#status-filter', v => setFilter({ status: v }));
   $('#zone-filter').onchange = e => setFilter({ zone: e.target.value });
   $('#min-sightings').onchange = e => setFilter({ minS: +e.target.value });
@@ -1138,12 +1148,12 @@ function init() {
     if (e.target.closest('.star')) toggleWatch(row.dataset.id); else openDetail(row.dataset.id);
   });
   body.addEventListener('keydown', e => {
-    if (e.key === 'ArrowDown' || e.key === 'j') { moveCursor(1); e.preventDefault(); }
-    else if (e.key === 'ArrowUp' || e.key === 'k') { moveCursor(-1); e.preventDefault(); }
-    else if (e.key === 'PageDown') { moveCursor(Math.floor(body.clientHeight / ROW_H)); e.preventDefault(); }
-    else if (e.key === 'PageUp') { moveCursor(-Math.floor(body.clientHeight / ROW_H)); e.preventDefault(); }
-    else if (e.key === 'Enter' && view[S.cursor]) openDetail(view[S.cursor].id);
-    else if (e.key === 'w' && view[S.cursor]) toggleWatch(view[S.cursor].id);
+    const page = Math.floor(body.clientHeight / ROW_H);
+    const step = { ArrowDown: 1, j: 1, ArrowUp: -1, k: -1, PageDown: page, PageUp: -page }[e.key];
+    const cur = view[S.cursor];
+    if (step) { moveCursor(step); e.preventDefault(); }
+    else if (e.key === 'Enter' && cur) openDetail(cur.id);
+    else if (e.key === 'w' && cur) toggleWatch(cur.id);
   });
   segmented('#range', v => { S.routeHours = +v; saveHash(); loadRoute(); invalidate('analytics'); });
   segmented('#activity-mode', v => { S.activityMode = v; invalidate('analytics'); });
@@ -1166,10 +1176,10 @@ function init() {
   $('#scrub-fwd').onclick = () => { stopPlay(); if (S.replay) showAt(S.replay.at + 300); };
   $('#scrub-play').onclick = togglePlay;
   $('#scrub-live').onclick = goLive;
-  $('#pause').onclick = () => {
+  $('#pause').onclick = e => {
     S.paused = !S.paused;
-    $('#pause').setAttribute('aria-pressed', S.paused);
-    $('#pause').textContent = S.paused ? 'Resume' : 'Pause';
+    e.currentTarget.setAttribute('aria-pressed', S.paused);
+    e.currentTarget.textContent = S.paused ? 'Resume' : 'Pause';
     setLive(S.paused ? 'paused' : 'live');
     if (!S.paused) invalidate('all');
   };
