@@ -5,7 +5,7 @@
 **Your conference badge is broadcasting where you are. This tool shows how much that gives away.**
 
 A passive Bluetooth Low Energy tracker for iBeacon-based event badges, with a live
-floor map, movement timelines and a ready-made disclosure report.
+floor map and movement timelines.
 
 <sub><i>track</i> + lan<i>yard</i>: the badge on your lanyard is the tracker.</sub>
 
@@ -21,8 +21,7 @@ floor map, movement timelines and a ready-made disclosure report.
 > [!WARNING]
 > **Security research tool. Read [Responsible use](#responsible-use) before you run it.**
 > Badge ids are tied to named attendees, so a movement trace is personal data.
-> Track only badges whose holders have agreed to it, keep the data short-lived,
-> and coordinate disclosure with the badge vendor and event organiser.
+> Track only badges whose holders have agreed to it and keep the data short-lived.
 
 ## Why this exists
 
@@ -46,8 +45,7 @@ problem for themselves and fix it.
 | 🎯 **Fleet filter** | Records only badges with your event's iBeacon UUID; `discover.py` helps you find it. |
 | 🗺️ **Zone localizer** | RSSI windows, a path-loss distance model, weighted fusion across receivers and hysteresis, so badges don't flicker between rooms. |
 | 🖥️ **Web dashboard** | Live floor map, zone occupancy, per-badge detail drawer, receiver health, analytics, and a time scrubber that replays any past moment. |
-| ✅ **Ground truth** | Mark where a badge really was; the report then states the localizer's measured accuracy with a confusion matrix. |
-| 🧾 **Disclosure report** | `trackyard report` writes a Markdown report: capture summary, signal stats, an example timeline, accuracy and mitigations. |
+| ✅ **Ground truth** | Mark where a badge really was to measure the localizer's accuracy with a confusion matrix. |
 | ⏱️ **Timelines and exports** | Enter / leave / dwell per badge as a table, CSV or JSON. |
 | 🧹 **Retention built in** | Old sightings are purged at startup and hourly. |
 | 🔒 **Local only** | SQLite on disk, dashboard bound to `127.0.0.1`, fonts bundled, no telemetry, no outbound requests (unless you set an external `map_image`). |
@@ -108,7 +106,6 @@ and drop the `uv run` prefix.
 | `trackyard web` | Serve the dashboard from an existing database. |
 | `trackyard live` | Terminal dashboard: last seen, zone, RSSI sparkline. |
 | `trackyard timeline TN_00412345 --format csv --out t.csv` | Zone / enter / leave / dwell timeline for one badge. |
-| `trackyard report --out report.md` | Generate the Markdown disclosure report. |
 | `trackyard purge` | Delete sightings older than `retention_days` right now. |
 
 Every command finds `config.yaml` by walking up from the current directory, or
@@ -201,8 +198,6 @@ to monitor people.
   retention (`retention_days`) and secure storage. Never publish raw captures;
   share aggregated or anonymised results.
 - **Event rules.** Get permission from the organiser before scanning at their venue.
-- **Disclosure.** Report findings to the badge vendor and the organiser first, and
-  give them reasonable time to respond before going public.
 - **Dashboard exposure.** The web UI has no authentication. Keep it on
   `127.0.0.1`, or put it behind a VPN or authenticating reverse proxy.
 
@@ -238,7 +233,6 @@ trackyard/
   status.py      current / historical zone per badge
   timeline.py    enter / leave / dwell segments, CSV / JSON export
   truth.py       ground-truth marks and accuracy
-  report.py      Markdown disclosure report
   live.py        terminal dashboard (rich)
   web.py         FastAPI app: JSON API + server-sent events
   static/        dashboard (vanilla JS, no build step)

@@ -194,15 +194,6 @@ def timeline(
         typer.echo(text)
 
 
-@app.command(help="Generate the Markdown disclosure report.")
-def report(out: Path = typer.Option("report.md", help="Markdown report output path.")):
-    from .report import generate
-
-    cfg, db = _load()
-    out.write_text(generate(db, cfg))
-    typer.echo(f"wrote {out}")
-
-
 @app.command(help="Terminal dashboard: targets, last seen, zone, RSSI sparkline.")
 def live():
     from .live import run

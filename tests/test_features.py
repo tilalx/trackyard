@@ -5,7 +5,6 @@ from fastapi.testclient import TestClient
 
 from conftest import make_ibeacon
 from trackyard.db import Database
-from trackyard.report import generate
 from trackyard.scanner import AdvInput, IngestEngine
 from trackyard.sinks import SqliteSink
 from trackyard.status import device_statuses, statuses_at
@@ -87,8 +86,6 @@ def test_ground_truth_marks_and_accuracy(walk, config):
     assert [m["predicted"] for m in acc["marks"]] == ["pi-a", "pi-b"]
     assert acc["confusion"] == {"pi-a": {"pi-a": 1, "pi-b": 1}}
     assert client.post("/api/truth", json={"target_id": "", "zone": "pi-a"}).status_code == 422
-    report = generate(walk, config)
-    assert "## Measured localization accuracy" in report and "**50%**" in report
 
 
 def test_analytics_includes_presence_and_utc_offset(walk, config):
